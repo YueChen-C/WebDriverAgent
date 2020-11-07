@@ -345,17 +345,43 @@ static NSString *const topNodeIndexPath = @"top";
 
   XCElementSnapshot *currentSnapshot;
   NSArray<XCElementSnapshot *> *children;
+  NSMutableArray<NSString *> *snapshotAttributes = [NSMutableArray array];
   if ([root isKindOfClass:XCUIElement.class]) {
-    XCUIElement *element = (XCUIElement *)root;
-    NSMutableArray<NSString *> *snapshotAttributes = [NSMutableArray arrayWithArray:FBStandardAttributeNames()];
+    [snapshotAttributes addObjectsFromArray:FBStandardAttributeNames()];
     if (nil == includedAttributes || [includedAttributes containsObject:FBVisibleAttribute.class]) {
       [snapshotAttributes addObject:FB_XCAXAIsVisibleAttributeName];
       // If the app is not idle state while we retrieve the visiblity state
       // then the snapshot retrieval operation might freeze and time out
-      [element.application fb_waitUntilStableWithTimeout:FBConfiguration.animationCoolOffTimeout];
+      [[(XCUIElement *)root application] fb_waitUntilStableWithTimeout:FBConfiguration.animationCoolOffTimeout];
     }
-    currentSnapshot = [element fb_snapshotWithAttributes:snapshotAttributes.copy
-                                                maxDepth:nil];
+  }
+  if ([root isKindOfClass:XCUIApplication.class]) {
+    XCUIApplication *app = (XCUIApplication *)root;
+    currentSnapshot = app.fb_isResolvedFromCache.boolValue ? app.lastSnapshot : [app fb_takeSnapshot];
+    NSArray<XCUIElement *> *windows = [app fb_filterDescendantsWithSnapshots:currentSnapshot.children
+                                                                     selfUID:currentSnapshot.wdUID
+                                                                onlyChildren:YES];
+    NSMutableArray<XCElementSnapshot *> *windowsSnapshots = [NSMutableArray array];
+    NSUInteger windowIdx = 0;
+    for (XCUIElement* window in windows) {
+      ++windowIdx;
+      @try {
+        XCElementSnapshot *windowSnapshot = [window fb_snapshotWithAttributes:snapshotAttributes.copy
+                                                                     maxDepth:nil];
+        if (nil == windowSnapshot) {
+          [FBLogger logFmt:@"Falling back to the default snapshotting mechanism for the application window #%lu (some attribute values, like visibility or accessibility might not be precise though)", windowIdx];
+          windowSnapshot = [window fb_takeSnapshot];
+        }
+        [windowsSnapshots addObject:windowSnapshot];
+      } @catch (NSException *e) {
+        [FBLogger logFmt:@"Skipping source dump for the application window #%lu because its snapshot cannot be resolved: %@", windowIdx, e.reason];
+      }
+    }
+    // This is necessary because some views are not visible in the native page source otherwise
+    children = windowsSnapshots.copy;
+  } else if ([root isKindOfClass:XCUIElement.class]) {
+    currentSnapshot = [(XCUIElement *)root fb_snapshotWithAttributes:snapshotAttributes.copy
+                                                            maxDepth:nil];
     children = currentSnapshot.children;
   } else {
     currentSnapshot = (XCElementSnapshot *)root;
