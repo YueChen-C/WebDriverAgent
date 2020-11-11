@@ -240,6 +240,10 @@
     }
   }
 #endif
+  elementRect.size.width=elementRect.size.width * 2;
+  elementRect.size.height=elementRect.size.width * 2;
+  elementRect.origin.x=elementRect.origin.x * 2;
+  elementRect.origin.y=elementRect.origin.y * 2;
   NSData *imageData = [XCUIScreen.mainScreen screenshotDataForQuality:FBConfiguration.screenshotQuality
                                                                  rect:elementRect
                                                                 error:error];
